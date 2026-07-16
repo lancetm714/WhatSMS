@@ -321,7 +321,7 @@ async function main() {
       service: 'WhatsApp \u2192 SMS Relay',
       status: 'running',
       whatsapp: log.whatsappStatus,
-      provider: config.textbee.apiKey ? 'textbee' : 'offline',
+       provider: config.textbee.apiKey ? 'textbee' : '',
       stats: db.getStats(),
       defaultDestination: config.defaultDestination || null,
     });
@@ -495,7 +495,7 @@ const GUI_HTML = `<!DOCTYPE html>
   </h1>
   <div class="status-row">
     <span class="indicator"><span class="dot gray" id="wa-dot"></span><span id="wa-label">disconnected</span></span>
-    <span class="indicator" id="provider-label">offline</span>
+    <span class="indicator" id="provider-label"></span>
   </div>
 </header>
 <div class="main">
@@ -598,7 +598,7 @@ const GUI_HTML = `<!DOCTYPE html>
     if (!cfg) return;
     cfgProvider.textContent = cfg.provider || '-';
     cfgDest.textContent = cfg.hasDestination ? 'Set' : 'Not set';
-    providerLabel.textContent = cfg.provider || 'offline';
+    providerLabel.textContent = cfg.provider || '';
   }
 
   function loadDestinations() {
