@@ -1,5 +1,9 @@
 # WhatSMS
 
+<p align="center">
+  <img src="whatsms-logo.png" alt="WhatSMS Logo" width="200">
+</p>
+
 WhatsApp → SMS relay. Messages sent to a WhatsApp number are forwarded as SMS to configured phone numbers via [textbee.dev](https://textbee.dev) (Android SMS gateway).
 
 ## Features
