@@ -106,6 +106,9 @@ async function main() {
       log.info('whatsapp', `Reconnecting in ${delay / 1000}s...`);
       await new Promise(r => setTimeout(r, delay));
       try {
+        await client.destroy().catch(() => {});
+        try { execSync('pkill -f "chromium" 2>/dev/null || true', { stdio: 'ignore' }); } catch {}
+        await new Promise(r => setTimeout(r, 2000));
         await client.initialize();
         reconnectAttempts = 0;
       } catch (e) {
