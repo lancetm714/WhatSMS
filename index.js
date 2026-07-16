@@ -64,6 +64,7 @@ async function main() {
       '--no-first-run',
       '--disable-default-apps',
       '--disable-notifications',
+      '--disable-background-networking',
       '--disable-process-singleton',
     ],
   };
@@ -77,10 +78,6 @@ async function main() {
     authStrategy: new LocalAuth({ dataPath: config.dataDir + '/auth' }),
     puppeteer: puppeteerOpts,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    webVersionCache: {
-      type: 'remote',
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1040051030-alpha.html',
-    },
   });
 
   client.on('qr', (qr) => {
@@ -359,7 +356,7 @@ async function main() {
 
   log.info('system', 'Starting WhatsApp client...');
   log.sendConfig(config);
-  (async function initClient(retries = 3) {
+  (async function initClient(retries = 5) {
     for (let i = 0; i < retries; i++) {
       try {
         await client.initialize();
@@ -367,7 +364,7 @@ async function main() {
       } catch (err) {
         if (err.message?.includes('Execution context was destroyed') && i < retries - 1) {
           log.warn('whatsapp', `Navigation glitch, retrying (${i + 1}/${retries})...`);
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 5000));
           continue;
         }
         throw err;
