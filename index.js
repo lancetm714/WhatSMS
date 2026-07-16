@@ -64,7 +64,6 @@ async function main() {
       '--no-first-run',
       '--disable-default-apps',
       '--disable-notifications',
-      '--disable-background-networking',
       '--disable-process-singleton',
     ],
   };
@@ -78,6 +77,10 @@ async function main() {
     authStrategy: new LocalAuth({ dataPath: config.dataDir + '/auth' }),
     puppeteer: puppeteerOpts,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1040051030-alpha.html',
+    },
   });
 
   client.on('qr', (qr) => {
@@ -96,24 +99,25 @@ async function main() {
     log.error('whatsapp', `Auth failure: ${msg}`);
   });
 
+  let wasConnected = false;
   let reconnectAttempts = 0;
+  client.on('ready', () => { wasConnected = true; });
   client.on('disconnected', async (reason) => {
     log.setStatus('disconnected');
-    log.warn('whatsapp', `Disconnected: ${reason}${reconnectAttempts > 0 ? ` (reconnect #${reconnectAttempts})` : ''}`);
-    if (reason === 'NAVIGATION' || reason === 'STREAM_END') {
-      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 60000);
-      reconnectAttempts++;
-      log.info('whatsapp', `Reconnecting in ${delay / 1000}s...`);
-      await new Promise(r => setTimeout(r, delay));
-      try {
-        await client.destroy().catch(() => {});
-        try { execSync('pkill -f "chromium" 2>/dev/null || true', { stdio: 'ignore' }); } catch {}
-        await new Promise(r => setTimeout(r, 2000));
-        await client.initialize();
-        reconnectAttempts = 0;
-      } catch (e) {
-        log.error('whatsapp', `Reconnect failed: ${e.message}`);
-      }
+    log.warn('whatsapp', `Disconnected: ${reason}`);
+    if (!wasConnected) return;
+    const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 60000);
+    reconnectAttempts++;
+    log.info('whatsapp', `Reconnecting in ${delay / 1000}s...`);
+    await new Promise(r => setTimeout(r, delay));
+    try {
+      await client.destroy().catch(() => {});
+      try { execSync('pkill -f "chromium" 2>/dev/null || true', { stdio: 'ignore' }); } catch {}
+      await new Promise(r => setTimeout(r, 2000));
+      await client.initialize();
+      reconnectAttempts = 0;
+    } catch (e) {
+      log.error('whatsapp', `Reconnect failed: ${e.message}`);
     }
   });
 
