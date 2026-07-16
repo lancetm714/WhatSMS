@@ -359,7 +359,21 @@ async function main() {
 
   log.info('system', 'Starting WhatsApp client...');
   log.sendConfig(config);
-  client.initialize();
+  (async function initClient(retries = 3) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        await client.initialize();
+        return;
+      } catch (err) {
+        if (err.message?.includes('Execution context was destroyed') && i < retries - 1) {
+          log.warn('whatsapp', `Navigation glitch, retrying (${i + 1}/${retries})...`);
+          await new Promise(r => setTimeout(r, 3000));
+          continue;
+        }
+        throw err;
+      }
+    }
+  })();
 
   process.on('SIGINT', () => {
     log.info('system', 'Shutting down...');
