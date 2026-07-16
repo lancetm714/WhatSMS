@@ -384,7 +384,7 @@ const GUI_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WhatsApp \u2192 SMS Relay</title>
+<title>WhatSMS</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -489,7 +489,10 @@ const GUI_HTML = `<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>WhatsApp \u2192 SMS Relay</h1>
+  <h1 style="display:flex;align-items:center;gap:10px">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    WhatSMS
+  </h1>
   <div class="status-row">
     <span class="indicator"><span class="dot gray" id="wa-dot"></span><span id="wa-label">disconnected</span></span>
     <span class="indicator" id="provider-label">offline</span>
