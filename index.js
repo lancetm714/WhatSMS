@@ -12,16 +12,15 @@ const log = require('./logger');
 function cleanupStaleLocks() {
   const authDir = path.join(config.dataDir, 'auth');
   if (!fs.existsSync(authDir)) return;
-  for (const file of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'chrome_debug.log']) {
-    try {
-      const p = path.join(authDir, file);
-      if (fs.existsSync(p)) fs.unlinkSync(p);
-    } catch {}
-  }
-  try {
-    execSync('taskkill /f /im brave.exe /fi "WINDOWTITLE eq " 2>nul', { stdio: 'ignore' });
-    execSync('taskkill /f /im chrome.exe /fi "WINDOWTITLE eq " 2>nul', { stdio: 'ignore' });
-  } catch {}
+  const targets = ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'chrome_debug.log'];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (targets.includes(entry.name)) { try { fs.unlinkSync(p); } catch {} }
+    }
+  };
+  walk(authDir);
 }
 
 function createSmsProvider() {
@@ -51,12 +50,6 @@ async function main() {
   await db.init();
 
   cleanupStaleLocks();
-  const authDir = path.join(config.dataDir, 'auth');
-  const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
-  for (const f of lockFiles) {
-    const fp = path.join(authDir, f);
-    try { fs.unlinkSync(fp); log.info('system', `Removed stale lock: ${f}`); } catch {}
-  }
 
   const sendSms = createSmsProvider();
   const puppeteerOpts = {
