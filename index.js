@@ -51,6 +51,12 @@ async function main() {
   await db.init();
 
   cleanupStaleLocks();
+  const authDir = path.join(config.dataDir, 'auth');
+  const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+  for (const f of lockFiles) {
+    const fp = path.join(authDir, f);
+    try { fs.unlinkSync(fp); log.info('system', `Removed stale lock: ${f}`); } catch {}
+  }
 
   const sendSms = createSmsProvider();
   const puppeteerOpts = {
@@ -65,6 +71,7 @@ async function main() {
       '--no-first-run',
       '--disable-default-apps',
       '--disable-notifications',
+      '--disable-process-singleton',
     ],
   };
   if (config.puppeteerExecutablePath) {
