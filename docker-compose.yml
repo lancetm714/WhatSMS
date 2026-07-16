@@ -1,7 +1,7 @@
 services:
-  whatsapp-sms-relay:
+  whatsms:
     image: ghcr.io/lancetm714/whatsms:latest
-    container_name: whatsapp-sms-relay
+    container_name: whatsms
     init: true
     restart: unless-stopped
     ports:
