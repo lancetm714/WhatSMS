@@ -1,0 +1,17 @@
+services:
+  whatsapp-sms-relay:
+    build: .
+    container_name: whatsapp-sms-relay
+    init: true
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TEXBEE_API_KEY=${TEXBEE_API_KEY:-}
+      - TEXBEE_DEVICE_ID=${TEXBEE_DEVICE_ID:-}
+      - TEXBEE_BASE_URL=${TEXBEE_BASE_URL:-https://api.textbee.dev}
+      - DEFAULT_DESTINATION=${DEFAULT_DESTINATION:-}
+      - PORT=3000
+      - DATA_DIR=/app/data
