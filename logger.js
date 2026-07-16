@@ -59,7 +59,7 @@ class Logger extends EventEmitter {
   sendConfig(cfg) {
     this._broadcast({
       type: 'config',
-      provider: cfg.textbee?.apiKey ? 'textbee' : 'mock',
+      provider: cfg.textbee?.apiKey ? 'textbee' : 'offline',
       hasDestination: !!(cfg.defaultDestination),
     });
   }

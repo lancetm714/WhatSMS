@@ -38,12 +38,12 @@ function createSmsProvider() {
     };
   }
 
-  log.info('system', 'SMS provider: mock (set TEXBEE_API_KEY and TEXBEE_DEVICE_ID for real SMS)');
+  log.info('system', 'SMS provider: offline (set TEXBEE_API_KEY and TEXBEE_DEVICE_ID in environment)');
   return async (to, body) => {
     log.info('sms-out', `To: ${to}`);
     log.info('sms-out', `Body: ${body}`);
-    log.info('sms-out', 'Status: SENT (mock)');
-    return { success: true, mock: true };
+    log.info('sms-out', 'Status: SENT (offline - no SMS provider)');
+    return { success: true, offline: true };
   };
 }
 
@@ -321,7 +321,7 @@ async function main() {
       service: 'WhatsApp \u2192 SMS Relay',
       status: 'running',
       whatsapp: log.whatsappStatus,
-      provider: config.textbee.apiKey ? 'textbee' : 'mock',
+      provider: config.textbee.apiKey ? 'textbee' : 'offline',
       stats: db.getStats(),
       defaultDestination: config.defaultDestination || null,
     });
@@ -492,7 +492,7 @@ const GUI_HTML = `<!DOCTYPE html>
   <h1>WhatsApp \u2192 SMS Relay</h1>
   <div class="status-row">
     <span class="indicator"><span class="dot gray" id="wa-dot"></span><span id="wa-label">disconnected</span></span>
-    <span class="indicator" id="provider-label">mock</span>
+    <span class="indicator" id="provider-label">offline</span>
   </div>
 </header>
 <div class="main">
@@ -595,7 +595,7 @@ const GUI_HTML = `<!DOCTYPE html>
     if (!cfg) return;
     cfgProvider.textContent = cfg.provider || '-';
     cfgDest.textContent = cfg.hasDestination ? 'Set' : 'Not set';
-    providerLabel.textContent = cfg.provider || 'mock';
+    providerLabel.textContent = cfg.provider || 'offline';
   }
 
   function loadDestinations() {
