@@ -77,7 +77,7 @@ async function main() {
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: config.dataDir + '/auth' }),
     puppeteer: puppeteerOpts,
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
   });
 
   client.on('qr', (qr) => {
@@ -96,9 +96,22 @@ async function main() {
     log.error('whatsapp', `Auth failure: ${msg}`);
   });
 
-  client.on('disconnected', (reason) => {
+  let reconnectAttempts = 0;
+  client.on('disconnected', async (reason) => {
     log.setStatus('disconnected');
-    log.warn('whatsapp', `Disconnected: ${reason}`);
+    log.warn('whatsapp', `Disconnected: ${reason}${reconnectAttempts > 0 ? ` (reconnect #${reconnectAttempts})` : ''}`);
+    if (reason === 'NAVIGATION' || reason === 'STREAM_END') {
+      const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 60000);
+      reconnectAttempts++;
+      log.info('whatsapp', `Reconnecting in ${delay / 1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        await client.initialize();
+        reconnectAttempts = 0;
+      } catch (e) {
+        log.error('whatsapp', `Reconnect failed: ${e.message}`);
+      }
+    }
   });
 
   client.on('message', async (msg) => {
