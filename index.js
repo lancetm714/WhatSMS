@@ -495,7 +495,7 @@ const GUI_HTML = `<!DOCTYPE html>
   </h1>
   <div class="status-row">
     <span class="indicator"><span class="dot gray" id="wa-dot"></span><span id="wa-label">disconnected</span></span>
-    <span class="indicator" id="provider-label"></span>
+    <span class="indicator" id="provider-container"><span class="dot" id="provider-dot"></span><span id="provider-label"></span></span>
   </div>
 </header>
 <div class="main">
@@ -536,6 +536,7 @@ const GUI_HTML = `<!DOCTYPE html>
   const logContainer = document.getElementById('log-container');
   const waDot = document.getElementById('wa-dot');
   const waLabel = document.getElementById('wa-label');
+  const providerDot = document.getElementById('provider-dot');
   const providerLabel = document.getElementById('provider-label');
   const qrContainer = document.getElementById('qr-container');
   const statTotal = document.getElementById('stat-total');
@@ -598,7 +599,13 @@ const GUI_HTML = `<!DOCTYPE html>
     if (!cfg) return;
     cfgProvider.textContent = cfg.provider || '-';
     cfgDest.textContent = cfg.hasDestination ? 'Set' : 'Not set';
-    providerLabel.textContent = cfg.provider || '';
+    if (cfg.provider) {
+      providerLabel.textContent = cfg.provider;
+      providerDot.className = 'dot green';
+    } else {
+      providerLabel.textContent = '';
+      providerDot.className = 'dot';
+    }
   }
 
   function loadDestinations() {
