@@ -1,3 +1,11 @@
+const puppeteerExtra = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteerExtra.use(StealthPlugin());
+const pptrPath = require.resolve('puppeteer');
+const origPptr = require.cache[pptrPath].exports;
+puppeteerExtra.executablePath = origPptr.executablePath;
+require.cache[pptrPath].exports = puppeteerExtra;
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const express = require('express');

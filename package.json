@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "express": "^4.21.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "sql.js": "^1.11.0",
