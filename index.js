@@ -59,12 +59,7 @@ async function main() {
       '--disable-setuid-sandbox',
       '--disable-gpu',
       '--disable-dev-shm-usage',
-      '--disable-extensions',
-      '--disable-sync',
-      '--no-first-run',
-      '--disable-default-apps',
-      '--disable-notifications',
-      '--disable-process-singleton',
+      '--disable-blink-features=AutomationControlled',
     ],
   };
   if (config.puppeteerExecutablePath) {
@@ -76,7 +71,6 @@ async function main() {
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: config.dataDir + '/auth' }),
     puppeteer: puppeteerOpts,
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
     webVersionCache: {
       type: 'remote',
       remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1040051030-alpha.html',
