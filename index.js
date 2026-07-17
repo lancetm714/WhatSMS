@@ -65,9 +65,7 @@ async function main() {
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-gpu',
       '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
     ],
   };
   if (config.puppeteerExecutablePath) {
@@ -79,10 +77,6 @@ async function main() {
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: config.dataDir + '/auth' }),
     puppeteer: puppeteerOpts,
-    webVersionCache: {
-      type: 'remote',
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1040051030-alpha.html',
-    },
   });
 
   client.on('qr', (qr) => {
