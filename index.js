@@ -146,9 +146,15 @@ async function main() {
 
     let mediaType = null;
     if (hasMedia) {
-      const media = await msg.downloadMedia();
-      mediaType = media.mimetype;
-      log.info('media', `${mediaType} (${media.data.length}b)`);
+      try {
+        const media = await msg.downloadMedia();
+        if (media) {
+          mediaType = media.mimetype;
+          log.info('media', `${mediaType} (${media.data.length}b)`);
+        }
+      } catch (e) {
+        log.warn('media', `Download failed: ${e.message}`);
+      }
     }
 
     db.logMessage(conv.id, 'whatsapp_in', body, mediaType);
