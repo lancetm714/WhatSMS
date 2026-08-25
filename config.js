@@ -37,6 +37,7 @@ module.exports = {
     workerIntervalMs: parseInt(process.env.SMS_WORKER_INTERVAL_MS || '5000', 10),
     pollIntervalMs: parseInt(process.env.SMS_POLL_INTERVAL_MS || '15000', 10),
     deliveryFirstCheckMs: parseInt(process.env.SMS_DELIVERY_FIRST_CHECK_MS || '3000', 10),
+    countryCode: process.env.SMS_COUNTRY_CODE !== undefined ? process.env.SMS_COUNTRY_CODE : '1',
   },
   puppeteerExecutablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
 };

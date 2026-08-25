@@ -13,5 +13,6 @@ services:
       - TEXBEE_DEVICE_ID=${TEXBEE_DEVICE_ID:-}
       - TEXBEE_BASE_URL=${TEXBEE_BASE_URL:-https://api.textbee.dev}
       - DEFAULT_DESTINATION=${DEFAULT_DESTINATION:-}
+      - SMS_COUNTRY_CODE=${SMS_COUNTRY_CODE:-1}
       - PORT=3000
       - DATA_DIR=/app/data

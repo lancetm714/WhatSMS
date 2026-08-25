@@ -35,6 +35,18 @@ function smsConfigured() {
   return !!(config.textbee.apiKey && config.textbee.deviceId);
 }
 
+function normalizePhone(raw) {
+  if (typeof raw !== 'string') return raw;
+  let n = raw.trim().replace(/[\s\-().]/g, '');
+  const cc = String(config.sms.countryCode || '').replace(/[^0-9]/g, '');
+  if (!cc) return n;
+  n = n.replace(/^\+/, '');
+  if (n.length > 10 && n.startsWith(cc)) {
+    n = n.slice(cc.length);
+  }
+  return n;
+}
+
 function nowPlus(ms) {
   return new Date(Date.now() + ms).toISOString();
 }
@@ -349,11 +361,12 @@ async function main() {
 
     const smsBody = groupContext + buildSmsBody(body, mediaType);
     for (const dest of destinations) {
+      const target = normalizePhone(dest);
       if (smsConfigured()) {
-        db.enqueue(conv.id, dest, smsBody);
-        log.info('sms-out', `Queued: To ${dest} | ${smsBody.slice(0, 80)}`);
+        db.enqueue(conv.id, target, smsBody);
+        log.info('sms-out', `Queued: To ${target} | ${smsBody.slice(0, 80)}`);
       } else {
-        log.info('sms-out', `To: ${dest}`);
+        log.info('sms-out', `To: ${target}`);
         log.info('sms-out', `Body: ${smsBody}`);
         log.info('sms-out', 'Status: SENT (offline - no SMS provider)');
       }
@@ -386,9 +399,10 @@ async function main() {
             await client.sendMessage(from, 'Usage: !dest add +1234567890');
             return;
           }
-          db.addDestination(number, phone);
-          await client.sendMessage(from, `\u2713 Added destination: ${phone}`);
-          log.info('system', `Destination added: ${phone}`);
+          const normalized = normalizePhone(phone);
+          db.addDestination(number, normalized);
+          await client.sendMessage(from, `\u2713 Added destination: ${normalized}`);
+          log.info('system', `Destination added: ${normalized}`);
           return;
         }
 
@@ -491,8 +505,9 @@ async function main() {
   app.post('/api/destinations', (req, res) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'phone required' });
-    db.addGlobalDestination(phone);
-    log.info('system', `Destination added via GUI: ${phone}`);
+    const normalized = normalizePhone(String(phone));
+    db.addGlobalDestination(normalized);
+    log.info('system', `Destination added via GUI: ${normalized}`);
     res.json({ success: true, destinations: db.getGlobalDestinations() });
   });
 
@@ -524,7 +539,7 @@ async function main() {
   });
 
   app.post('/api/send-test', (req, res) => {
-    const to = String(req.body?.to || '').trim();
+    const to = normalizePhone(String(req.body?.to || '').trim());
     const message = String(req.body?.message || '').trim();
     if (!to) return res.status(400).json({ error: 'number required' });
     if (!message) return res.status(400).json({ error: 'message required' });

@@ -64,6 +64,7 @@ docker compose up -d
 | `SMS_WORKER_INTERVAL_MS` | Outbox worker sweep interval (default: `5000`) |
 | `SMS_POLL_INTERVAL_MS` | Delivery-status re-poll interval (default: `15000`) |
 | `SMS_DELIVERY_FIRST_CHECK_MS` | Delay before first delivery check (default: `3000`) |
+| `SMS_COUNTRY_CODE` | Leading country code to strip before sending, e.g. `1` turns `+17173010189` into `7173010189` (default: `1`; set empty to disable) |
 
 ## How delivery works
 
