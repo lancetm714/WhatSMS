@@ -49,6 +49,23 @@ async function init() {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL,
+      destination TEXT NOT NULL,
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      sms_batch_id TEXT,
+      sms_id TEXT,
+      last_error TEXT,
+      next_attempt_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    )
+  `);
 
   migrateOrphanedDestinations();
   persist();
@@ -142,16 +159,124 @@ function logMessage(conversationId, direction, body, mediaType, mediaPath) {
   persist();
 }
 
+function enqueue(conversationId, destination, body) {
+  execute(
+    'INSERT INTO outbox (conversation_id, destination, body, status, attempts, next_attempt_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [conversationId, destination, body, 'pending', 0, new Date().toISOString()]
+  );
+  persist();
+}
+
+function getPendingOutbox(nowIso, limit = 20) {
+  const rows = queryAll(
+    `SELECT * FROM outbox
+     WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+     ORDER BY id ASC LIMIT ?`,
+    [nowIso, limit]
+  );
+  return rows;
+}
+
+function setOutboxBatch(id, smsBatchId) {
+  execute(
+    'UPDATE outbox SET sms_batch_id = ?, last_error = NULL, updated_at = datetime(\'now\') WHERE id = ?',
+    [smsBatchId, id]
+  );
+  persist();
+}
+
+function clearOutboxBatch(id) {
+  execute(
+    'UPDATE outbox SET sms_batch_id = NULL, sms_id = NULL, updated_at = datetime(\'now\') WHERE id = ?',
+    [id]
+  );
+  persist();
+}
+
+function scheduleOutbox(id, nextAttemptIso) {
+  execute(
+    'UPDATE outbox SET next_attempt_at = ?, updated_at = datetime(\'now\') WHERE id = ?',
+    [nextAttemptIso, id]
+  );
+  persist();
+}
+
+function retryOutbox(id, attempts, error, nextAttemptIso) {
+  execute(
+    'UPDATE outbox SET attempts = ?, last_error = ?, next_attempt_at = ?, status = \'pending\', updated_at = datetime(\'now\') WHERE id = ?',
+    [attempts, error || null, nextAttemptIso, id]
+  );
+  persist();
+}
+
+function markOutboxSent(id, smsId) {
+  execute(
+    'UPDATE outbox SET status = \'sent\', sms_id = ?, last_error = NULL, next_attempt_at = NULL, updated_at = datetime(\'now\') WHERE id = ?',
+    [smsId || null, id]
+  );
+  persist();
+}
+
+function markOutboxFailed(id, error) {
+  execute(
+    'UPDATE outbox SET status = \'failed\', last_error = ?, next_attempt_at = NULL, updated_at = datetime(\'now\') WHERE id = ?',
+    [error || null, id]
+  );
+  persist();
+}
+
+function requeueOutbox(id) {
+  execute(
+    'UPDATE outbox SET status = \'pending\', attempts = 0, sms_batch_id = NULL, sms_id = NULL, last_error = NULL, next_attempt_at = ?, updated_at = datetime(\'now\') WHERE id = ?',
+    [new Date().toISOString(), id]
+  );
+  persist();
+}
+
+function deleteOutbox(id) {
+  execute('DELETE FROM outbox WHERE id = ?', [id]);
+  persist();
+}
+
+function getOutbox(statuses, limit = 200) {
+  if (!statuses.length) return [];
+  const placeholders = statuses.map(() => '?').join(',');
+  const rows = queryAll(
+    `SELECT * FROM outbox WHERE status IN (${placeholders}) ORDER BY id DESC LIMIT ?`,
+    [...statuses, limit]
+  );
+  return rows;
+}
+
 function getStats() {
-  const row = queryOne(`
-    SELECT
-      COUNT(*) as total_messages,
-      IFNULL(SUM(CASE WHEN direction = 'whatsapp_in' THEN 1 ELSE 0 END), 0) as received,
-      IFNULL(SUM(CASE WHEN direction = 'sms_out' THEN 1 ELSE 0 END), 0) as relayed,
-      COUNT(DISTINCT conversation_id) as active_conversations
-    FROM messages
-  `);
-  return row || { total_messages: 0, received: 0, relayed: 0, active_conversations: 0 };
+  const received = queryOne(
+    `SELECT COUNT(*) as c FROM messages WHERE direction = 'whatsapp_in'`
+  )?.c || 0;
+  const sent = queryOne(
+    `SELECT COUNT(*) as c FROM outbox WHERE status = 'sent'`
+  )?.c || 0;
+  const failed = queryOne(
+    `SELECT COUNT(*) as c FROM outbox WHERE status = 'failed'`
+  )?.c || 0;
+  const pending = queryOne(
+    `SELECT COUNT(*) as c FROM outbox WHERE status = 'pending'`
+  )?.c || 0;
+  const convos = queryOne(
+    `SELECT COUNT(DISTINCT conversation_id) as c FROM (
+       SELECT conversation_id FROM messages
+       UNION ALL
+       SELECT conversation_id FROM outbox
+     )`
+  )?.c || 0;
+  return {
+    total_messages: received + sent + failed + pending,
+    received,
+    relayed: sent,
+    sent,
+    failed,
+    pending,
+    active_conversations: convos,
+  };
 }
 
 function close() {
@@ -175,4 +300,4 @@ function removeGlobalDestination(phone) {
   removeDestination(GLOBAL_KEY, phone);
 }
 
-module.exports = { init, getConversation, getDestinations, addDestination, removeDestination, logMessage, getStats, close, getGlobalDestinations, addGlobalDestination, removeGlobalDestination };
+module.exports = { init, getConversation, getDestinations, addDestination, removeDestination, logMessage, getStats, close, getGlobalDestinations, addGlobalDestination, removeGlobalDestination, enqueue, getPendingOutbox, setOutboxBatch, clearOutboxBatch, scheduleOutbox, retryOutbox, markOutboxSent, markOutboxFailed, requeueOutbox, deleteOutbox, getOutbox };

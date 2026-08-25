@@ -14,7 +14,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const config = require('./config');
 const db = require('./db');
-const vendel = require('./textbee');
+const { sendSms, getSmsBatch } = require('./textbee');
 const log = require('./logger');
 
 function cleanupStaleLocks() {
@@ -31,27 +31,143 @@ function cleanupStaleLocks() {
   walk(authDir);
 }
 
-function createSmsProvider() {
-  if (config.textbee.apiKey && config.textbee.deviceId) {
-    log.info('system', 'SMS provider: textbee.dev');
-    return async (to, body) => {
-      const result = await vendel.sendSms({ to, body, apiKey: config.textbee.apiKey, deviceId: config.textbee.deviceId, baseUrl: config.textbee.baseUrl });
-      if (result.success) {
-        log.info('sms-out', `To: ${to} | IDs: ${result.messageIds.join(', ')}`);
-      } else {
-        log.error('sms-out', `To: ${to} | FAILED: ${JSON.stringify(result.error)}`);
-      }
-      return result;
-    };
+function smsConfigured() {
+  return !!(config.textbee.apiKey && config.textbee.deviceId);
+}
+
+function nowPlus(ms) {
+  return new Date(Date.now() + ms).toISOString();
+}
+
+function deriveDelivery(batch, messages) {
+  const msg = messages && messages.length ? messages[0] : null;
+  const msgStatus = msg?.status;
+  const batchStatus = batch?.status;
+  const successCount = batch?.successCount || 0;
+  const failureCount = batch?.failureCount || 0;
+
+  if (msgStatus === 'failed' || batchStatus === 'failed') return 'failed';
+  if (msgStatus === 'delivered' || msgStatus === 'sent') return 'success';
+  if (batchStatus === 'completed' || batchStatus === 'delivered' || batchStatus === 'sent') {
+    return failureCount > 0 && successCount === 0 ? 'failed' : 'success';
+  }
+  return 'pending';
+}
+
+function handleRetry(row, error) {
+  const attempts = row.attempts + 1;
+  if (attempts >= config.sms.maxAttempts) {
+    db.markOutboxFailed(row.id, error);
+    log.error('sms-out', `Failed after ${attempts} attempts: To ${row.destination} | ${error}`);
+  } else {
+    const backoff = Math.min(config.sms.retryBaseMs * Math.pow(2, attempts - 1), config.sms.retryMaxMs);
+    db.retryOutbox(row.id, attempts, error, nowPlus(backoff));
+    log.warn('sms-out', `Retry ${attempts}/${config.sms.maxAttempts} in ${Math.round(backoff / 1000)}s: To ${row.destination} | ${error}`);
+  }
+}
+
+async function attemptSend(row) {
+  const result = await sendSms({
+    to: row.destination,
+    body: row.body,
+    apiKey: config.textbee.apiKey,
+    deviceId: config.textbee.deviceId,
+    baseUrl: config.textbee.baseUrl,
+    timeoutMs: config.textbee.timeoutMs,
+  });
+
+  if (result.ok) {
+    if (result.smsBatchId) {
+      db.setOutboxBatch(row.id, result.smsBatchId);
+      db.scheduleOutbox(row.id, nowPlus(config.sms.deliveryFirstCheckMs));
+      log.info('sms-out', `Queued (batch ${result.smsBatchId}): To ${row.destination}`);
+    } else if ((result.successCount || 0) > 0 && (result.failureCount || 0) === 0) {
+      db.markOutboxSent(row.id);
+      log.info('sms-out', `Sent: To ${row.destination}`);
+    } else if ((result.failureCount || 0) > 0) {
+      handleRetry(row, 'Could not push to device');
+    } else {
+      db.markOutboxSent(row.id);
+      log.info('sms-out', `Sent: To ${row.destination}`);
+    }
+  } else if (result.retryable) {
+    handleRetry(row, result.error || 'SMS send failed');
+  } else {
+    db.markOutboxFailed(row.id, result.error || 'Non-retryable error');
+    log.error('sms-out', `Failed permanently: To ${row.destination} | ${result.error}`);
+  }
+}
+
+async function checkDelivery(row) {
+  const result = await getSmsBatch({
+    apiKey: config.textbee.apiKey,
+    deviceId: config.textbee.deviceId,
+    baseUrl: config.textbee.baseUrl,
+    smsBatchId: row.sms_batch_id,
+    timeoutMs: config.textbee.timeoutMs,
+  });
+
+  if (!result.ok) {
+    if (result.statusCode === 404) {
+      db.clearOutboxBatch(row.id);
+      db.scheduleOutbox(row.id, nowPlus(config.sms.retryBaseMs));
+      return;
+    }
+    if (result.retryable) {
+      db.scheduleOutbox(row.id, nowPlus(config.sms.pollIntervalMs));
+      return;
+    }
+    db.markOutboxFailed(row.id, result.error || 'Status check failed');
+    log.error('sms-out', `Status check failed: To ${row.destination} | ${result.error}`);
+    return;
   }
 
-  log.info('system', 'SMS provider: offline (set TEXBEE_API_KEY and TEXBEE_DEVICE_ID in environment)');
-  return async (to, body) => {
-    log.info('sms-out', `To: ${to}`);
-    log.info('sms-out', `Body: ${body}`);
-    log.info('sms-out', 'Status: SENT (offline - no SMS provider)');
-    return { success: true, offline: true };
+  const delivery = deriveDelivery(result.batch, result.messages);
+  if (delivery === 'success') {
+    const smsId = result.messages?.[0]?._id || null;
+    db.markOutboxSent(row.id, smsId);
+    log.info('sms-out', `Delivered: To ${row.destination}`);
+  } else if (delivery === 'failed') {
+    const err = result.messages?.[0]?.errorMessage || result.batch?.error || 'Delivery failed';
+    db.clearOutboxBatch(row.id);
+    handleRetry(row, err);
+  } else {
+    db.scheduleOutbox(row.id, nowPlus(config.sms.pollIntervalMs));
+  }
+}
+
+async function processOutboxRow(row) {
+  try {
+    if (row.sms_batch_id) {
+      await checkDelivery(row);
+    } else {
+      await attemptSend(row);
+    }
+  } catch (err) {
+    log.error('outbox', `Row ${row.id} error: ${err.message}`);
+    handleRetry(row, err.message);
+  }
+}
+
+function startOutboxWorker() {
+  let busy = false;
+  const tick = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const rows = db.getPendingOutbox(new Date().toISOString(), 20);
+      for (const row of rows) {
+        await processOutboxRow(row);
+      }
+      log.sendStats(db.getStats());
+    } catch (err) {
+      log.error('outbox', `Worker error: ${err.message}`);
+    } finally {
+      busy = false;
+    }
   };
+  setInterval(tick, config.sms.workerIntervalMs);
+  tick();
 }
 
 async function main() {
@@ -59,7 +175,13 @@ async function main() {
 
   cleanupStaleLocks();
 
-  const sendSms = createSmsProvider();
+  if (smsConfigured()) {
+    log.info('system', 'SMS provider: textbee.dev');
+    startOutboxWorker();
+  } else {
+    log.info('system', 'SMS provider: offline (set TEXBEE_API_KEY and TEXBEE_DEVICE_ID in environment)');
+  }
+
   const puppeteerOpts = {
     headless: process.env.HEADLESS !== 'false',
     args: [
@@ -118,6 +240,8 @@ async function main() {
   });
 
   client.on('message', async (msg) => {
+    if (msg.fromMe) return;
+
     const from = msg.from;
     const number = from.split('@')[0];
     const body = msg.body;
@@ -125,7 +249,13 @@ async function main() {
 
     log.info('wa-in', `From: ${number}${from.endsWith('@g.us') ? ' (group)' : ''}${body ? ' | ' + body.slice(0, 120) : ''}`);
 
-    if (body.startsWith('!')) {
+    const hasText = typeof body === 'string' && body.trim().length > 0;
+    if (!hasText && !hasMedia) {
+      log.info('wa-in', 'Skipping: message has no text and no media');
+      return;
+    }
+
+    if (hasText && body.startsWith('!')) {
       await handleCommand(msg, from, number, client);
       return;
     }
@@ -219,8 +349,14 @@ async function main() {
 
     const smsBody = groupContext + buildSmsBody(body, mediaType);
     for (const dest of destinations) {
-      const result = await sendSms(dest, smsBody);
-      db.logMessage(conv.id, 'sms_out', smsBody);
+      if (smsConfigured()) {
+        db.enqueue(conv.id, dest, smsBody);
+        log.info('sms-out', `Queued: To ${dest} | ${smsBody.slice(0, 80)}`);
+      } else {
+        log.info('sms-out', `To: ${dest}`);
+        log.info('sms-out', `Body: ${smsBody}`);
+        log.info('sms-out', 'Status: SENT (offline - no SMS provider)');
+      }
     }
     log.sendStats(db.getStats());
 
@@ -288,6 +424,8 @@ async function main() {
           `Total messages: ${stats.total_messages}\n` +
           `Received: ${stats.received}\n` +
           `Relayed: ${stats.relayed}\n` +
+          `Pending: ${stats.pending}\n` +
+          `Failed: ${stats.failed}\n` +
           `Active conversations: ${stats.active_conversations}`
         );
         break;
@@ -340,7 +478,7 @@ async function main() {
       service: 'WhatsApp \u2192 SMS Relay',
       status: 'running',
       whatsapp: log.whatsappStatus,
-       provider: config.textbee.apiKey ? 'textbee' : '',
+      provider: config.textbee.apiKey ? 'textbee' : '',
       stats: db.getStats(),
       defaultDestination: config.defaultDestination || null,
     });
@@ -363,6 +501,38 @@ async function main() {
     db.removeGlobalDestination(phone);
     log.info('system', `Destination removed via GUI: ${phone}`);
     res.json({ success: true, destinations: db.getGlobalDestinations() });
+  });
+
+  app.get('/api/outbox', (req, res) => {
+    const statuses = String(req.query.status || 'pending,failed').split(',').map((s) => s.trim()).filter(Boolean);
+    res.json(db.getOutbox(statuses));
+  });
+
+  app.post('/api/outbox/:id/requeue', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'invalid id' });
+    db.requeueOutbox(id);
+    log.info('system', `Outbox item ${id} requeued for resend`);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/outbox/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'invalid id' });
+    db.deleteOutbox(id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/send-test', (req, res) => {
+    const to = String(req.body?.to || '').trim();
+    const message = String(req.body?.message || '').trim();
+    if (!to) return res.status(400).json({ error: 'number required' });
+    if (!message) return res.status(400).json({ error: 'message required' });
+    if (!smsConfigured()) return res.status(400).json({ error: 'no SMS provider configured' });
+    const conv = db.getConversation('__test__');
+    db.enqueue(conv.id, to, message);
+    log.info('system', `Test SMS queued: To ${to} | ${message.slice(0, 60)}`);
+    res.json({ success: true });
   });
 
   app.get('/api/logs', log.sseHandler.bind(log));
@@ -546,6 +716,8 @@ const GUI_HTML = `<!DOCTYPE html>
         <div class="stat"><div class="value" id="stat-total">0</div><div class="label">Total</div></div>
         <div class="stat"><div class="value" id="stat-received" style="color:var(--cyan)">0</div><div class="label">Received</div></div>
         <div class="stat"><div class="value" id="stat-relayed" style="color:var(--green)">0</div><div class="label">Relayed</div></div>
+        <div class="stat"><div class="value" id="stat-pending" style="color:var(--yellow)">0</div><div class="label">Pending</div></div>
+        <div class="stat"><div class="value" id="stat-failed" style="color:var(--red)">0</div><div class="label">Failed</div></div>
         <div class="stat"><div class="value" id="stat-convos">0</div><div class="label">Convos</div></div>
       </div>
     </section>
@@ -558,9 +730,24 @@ const GUI_HTML = `<!DOCTYPE html>
       </div>
     </section>
     <section>
+      <h2>Outbox</h2>
+      <ul class="dest-list" id="outbox-list"><li class="dest-empty">No pending/failed messages</li></ul>
+    </section>
+    <section>
       <h2>Config</h2>
       <div class="config-row"><span class="key">Provider</span><span class="val" id="cfg-provider">-</span></div>
       <div class="config-row"><span class="key">Destination</span><span class="val" id="cfg-dest">-</span></div>
+    </section>
+    <section>
+      <h2>Test SMS</h2>
+      <div class="dest-add-row">
+        <input type="text" id="test-number" placeholder="Number to send test to" />
+      </div>
+      <div class="dest-add-row" style="margin-top:6px">
+        <input type="text" id="test-message" placeholder="Test message" />
+        <button id="test-send-btn">Send</button>
+      </div>
+      <div id="test-result" class="dest-empty" style="margin-top:6px"></div>
     </section>
   </div>
 </div>
@@ -575,12 +762,19 @@ const GUI_HTML = `<!DOCTYPE html>
   const statTotal = document.getElementById('stat-total');
   const statReceived = document.getElementById('stat-received');
   const statRelayed = document.getElementById('stat-relayed');
+  const statPending = document.getElementById('stat-pending');
+  const statFailed = document.getElementById('stat-failed');
   const statConvos = document.getElementById('stat-convos');
   const cfgProvider = document.getElementById('cfg-provider');
   const cfgDest = document.getElementById('cfg-dest');
   const destList = document.getElementById('dest-list');
   const destInput = document.getElementById('dest-input');
   const destAddBtn = document.getElementById('dest-add-btn');
+  const outboxList = document.getElementById('outbox-list');
+  const testNumber = document.getElementById('test-number');
+  const testMessage = document.getElementById('test-message');
+  const testSendBtn = document.getElementById('test-send-btn');
+  const testResult = document.getElementById('test-result');
 
   const statusMap = {
     connected: ['green', 'Connected'],
@@ -625,6 +819,8 @@ const GUI_HTML = `<!DOCTYPE html>
     statTotal.textContent = stats.total_messages ?? 0;
     statReceived.textContent = stats.received ?? 0;
     statRelayed.textContent = stats.relayed ?? 0;
+    statPending.textContent = stats.pending ?? 0;
+    statFailed.textContent = stats.failed ?? 0;
     statConvos.textContent = stats.active_conversations ?? 0;
   }
 
@@ -683,6 +879,87 @@ const GUI_HTML = `<!DOCTYPE html>
     if (e.key === 'Enter') destAddBtn.click();
   });
 
+  function loadOutbox() {
+    fetch('/api/outbox')
+      .then(r => r.json())
+      .then(items => {
+        if (!items.length) {
+          outboxList.innerHTML = '<li class="dest-empty">No pending/failed messages</li>';
+          return;
+        }
+        outboxList.innerHTML = items.map(item => {
+          const badge = item.status === 'failed'
+            ? '<span class="val" style="color:var(--red)">failed</span>'
+            : '<span class="val" style="color:var(--yellow)">pending</span>';
+          const err = item.last_error ? '<br><span style="color:var(--text-dim);font-size:10px">' + escapeHtml(item.last_error) + '</span>' : '';
+          return '<li style="flex-direction:column;align-items:flex-start">'
+            + '<div style="width:100%;display:flex;justify-content:space-between;align-items:center">'
+            + '<span>' + escapeHtml(item.destination) + ' ' + badge + ' <span style="color:var(--text-dim)">x' + item.attempts + '</span></span>'
+            + '<span>'
+            + '<button class="remove-btn" data-action="requeue" data-id="' + item.id + '" title="Resend">&#8635;</button>'
+            + '<button class="remove-btn" data-action="delete" data-id="' + item.id + '">&times;</button>'
+            + '</span></div>'
+            + '<div style="font-size:11px;color:var(--text-dim);word-break:break-all">' + escapeHtml(item.body) + '</div>'
+            + err
+            + '</li>';
+        }).join('');
+        outboxList.querySelectorAll('.remove-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            if (this.dataset.action === 'delete') {
+              fetch('/api/outbox/' + id, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(data => { if (data.success) loadOutbox(); })
+                .catch(() => {});
+            } else {
+              fetch('/api/outbox/' + id + '/requeue', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => { if (data.success) loadOutbox(); })
+                .catch(() => {});
+            }
+          });
+        });
+      })
+      .catch(() => {});
+  }
+
+  function sendTest() {
+    const to = testNumber.value.trim();
+    const message = testMessage.value.trim();
+    if (!to) {
+      testResult.textContent = 'Enter a number';
+      return;
+    }
+    if (!message) {
+      testResult.textContent = 'Enter a message';
+      return;
+    }
+    testSendBtn.disabled = true;
+    fetch('/api/send-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, message }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        testSendBtn.disabled = false;
+        if (data.success) {
+          testResult.textContent = 'Test queued';
+          testMessage.value = '';
+          loadOutbox();
+        } else {
+          testResult.textContent = data.error || 'Send failed';
+        }
+      })
+      .catch(err => {
+        testSendBtn.disabled = false;
+        testResult.textContent = 'Error: ' + err.message;
+      });
+  }
+  testSendBtn.addEventListener('click', sendTest);
+  testMessage.addEventListener('keydown', function(e) { if (e.key === 'Enter') sendTest(); });
+  testNumber.addEventListener('keydown', function(e) { if (e.key === 'Enter') testMessage.focus(); });
+
   const evtSource = new EventSource('/api/logs');
   evtSource.onmessage = function(e) {
     try {
@@ -693,6 +970,7 @@ const GUI_HTML = `<!DOCTYPE html>
           if (data.status) setStatus(data.status);
           if (data.qr) showQr(data.qr);
           loadDestinations();
+          loadOutbox();
           break;
         case 'log':
           appendLog(data.entry);
@@ -706,6 +984,7 @@ const GUI_HTML = `<!DOCTYPE html>
           break;
         case 'stats':
           updateStats(data.stats);
+          loadOutbox();
           break;
         case 'config':
           updateConfig(data);
