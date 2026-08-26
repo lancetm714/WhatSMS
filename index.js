@@ -552,6 +552,10 @@ async function main() {
 
   app.get('/api/logs', log.sseHandler.bind(log));
 
+  app.get('/whatsms-logo.png', (req, res) => {
+    res.sendFile(path.join(__dirname, 'whatsms-logo.png'));
+  });
+
   app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(GUI_HTML);
@@ -603,6 +607,7 @@ const GUI_HTML = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WhatSMS</title>
+<link rel="icon" type="image/png" href="/whatsms-logo.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -708,7 +713,7 @@ const GUI_HTML = `<!DOCTYPE html>
 <body>
 <header>
   <h1 style="display:flex;align-items:center;gap:10px">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <img src="/whatsms-logo.png" alt="WhatSMS" style="height:28px;width:28px;border-radius:6px;object-fit:contain">
     WhatSMS
   </h1>
   <div class="status-row">
