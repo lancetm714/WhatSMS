@@ -809,10 +809,15 @@ const GUI_HTML = `<!DOCTYPE html>
     waLabel.textContent = label;
   }
 
+  function formatTime(entry) {
+    if (entry.ts) return new Date(entry.ts).toLocaleTimeString();
+    return entry.time || '';
+  }
+
   function appendLog(entry) {
     const el = document.createElement('div');
     el.className = 'entry ' + (entry.level || 'info');
-    el.innerHTML = '<span class="time">' + escapeHtml(entry.time) + '</span>'
+    el.innerHTML = '<span class="time">' + escapeHtml(formatTime(entry)) + '</span>'
       + '<span class="tag">[' + escapeHtml(entry.tag) + ']</span>'
       + escapeHtml(entry.message);
     logContainer.appendChild(el);

@@ -16,6 +16,7 @@ class Logger extends EventEmitter {
     const entry = {
       id: ++this.idCounter,
       time: new Date().toLocaleTimeString(),
+      ts: Date.now(),
       level,
       tag,
       message: String(message),
