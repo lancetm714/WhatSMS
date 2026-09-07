@@ -61,6 +61,19 @@ function nowPlus(ms) {
   return new Date(Date.now() + ms).toISOString();
 }
 
+let lastSendAt = 0;
+
+async function paceSend() {
+  const delay = config.sms.sendDelayMs;
+  if (!delay) return;
+  const now = Date.now();
+  const wait = lastSendAt + delay - now;
+  if (wait > 0) {
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  lastSendAt = Date.now();
+}
+
 function deriveDelivery(batch, messages) {
   const msg = messages && messages.length ? messages[0] : null;
   const msgStatus = msg?.status;
@@ -90,6 +103,7 @@ function handleRetry(row, error) {
 
 async function attemptSend(row) {
   const target = normalizePhone(row.destination);
+  await paceSend();
   const result = await sendSms({
     to: target,
     body: row.body,

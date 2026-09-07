@@ -31,9 +31,10 @@ module.exports = {
     timeoutMs: parseInt(process.env.TEXTBEE_TIMEOUT_MS || '20000', 10),
   },
   sms: {
-    maxAttempts: parseInt(process.env.SMS_MAX_ATTEMPTS || '5', 10),
+    maxAttempts: parseInt(process.env.SMS_MAX_ATTEMPTS || '10', 10),
     retryBaseMs: parseInt(process.env.SMS_RETRY_BASE_MS || '5000', 10),
-    retryMaxMs: parseInt(process.env.SMS_RETRY_MAX_MS || '300000', 10),
+    retryMaxMs: parseInt(process.env.SMS_RETRY_MAX_MS || '1800000', 10),
+    sendDelayMs: parseInt(process.env.SMS_SEND_DELAY_MS || '2000', 10),
     workerIntervalMs: parseInt(process.env.SMS_WORKER_INTERVAL_MS || '5000', 10),
     pollIntervalMs: parseInt(process.env.SMS_POLL_INTERVAL_MS || '15000', 10),
     deliveryFirstCheckMs: parseInt(process.env.SMS_DELIVERY_FIRST_CHECK_MS || '3000', 10),

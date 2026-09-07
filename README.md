@@ -58,9 +58,10 @@ docker compose up -d
 | `PORT` | Web GUI port (default: 3000) |
 | `HEADLESS` | Set to `false` to see the browser |
 | `PUPPETEER_EXECUTABLE_PATH` | Custom Chrome path |
-| `SMS_MAX_ATTEMPTS` | Max send attempts before marking failed (default: `5`) |
+| `SMS_MAX_ATTEMPTS` | Max send attempts before marking failed (default: `10`) |
 | `SMS_RETRY_BASE_MS` | Initial retry delay (default: `5000`) |
-| `SMS_RETRY_MAX_MS` | Max retry delay cap (default: `300000`) |
+| `SMS_RETRY_MAX_MS` | Max retry delay cap (default: `1800000`, 30 min) |
+| `SMS_SEND_DELAY_MS` | Minimum gap between SMS sends (default: `2000`; set `0` to disable) |
 | `SMS_WORKER_INTERVAL_MS` | Outbox worker sweep interval (default: `5000`) |
 | `SMS_POLL_INTERVAL_MS` | Delivery-status re-poll interval (default: `15000`) |
 | `SMS_DELIVERY_FIRST_CHECK_MS` | Delay before first delivery check (default: `3000`) |
