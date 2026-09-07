@@ -47,6 +47,16 @@ function normalizePhone(raw) {
   return n;
 }
 
+function isInvalidNumber(err) {
+  if (!err) return false;
+  const s = String(err).toLowerCase();
+  return /invalid number/.test(s) ||
+    /valid short code/.test(s) ||
+    /valid mobile number/.test(s) ||
+    /valid 10[- ]?digit/.test(s) ||
+    /cannot route/.test(s);
+}
+
 function nowPlus(ms) {
   return new Date(Date.now() + ms).toISOString();
 }
@@ -79,8 +89,9 @@ function handleRetry(row, error) {
 }
 
 async function attemptSend(row) {
+  const target = normalizePhone(row.destination);
   const result = await sendSms({
-    to: row.destination,
+    to: target,
     body: row.body,
     apiKey: config.textbee.apiKey,
     deviceId: config.textbee.deviceId,
@@ -92,21 +103,21 @@ async function attemptSend(row) {
     if (result.smsBatchId) {
       db.setOutboxBatch(row.id, result.smsBatchId);
       db.scheduleOutbox(row.id, nowPlus(config.sms.deliveryFirstCheckMs));
-      log.info('sms-out', `Queued (batch ${result.smsBatchId}): To ${row.destination}`);
+      log.info('sms-out', `Queued (batch ${result.smsBatchId}): To ${target}`);
     } else if ((result.successCount || 0) > 0 && (result.failureCount || 0) === 0) {
       db.markOutboxSent(row.id);
-      log.info('sms-out', `Sent: To ${row.destination}`);
+      log.info('sms-out', `Sent: To ${target}`);
     } else if ((result.failureCount || 0) > 0) {
       handleRetry(row, 'Could not push to device');
     } else {
       db.markOutboxSent(row.id);
-      log.info('sms-out', `Sent: To ${row.destination}`);
+      log.info('sms-out', `Sent: To ${target}`);
     }
   } else if (result.retryable) {
     handleRetry(row, result.error || 'SMS send failed');
   } else {
     db.markOutboxFailed(row.id, result.error || 'Non-retryable error');
-    log.error('sms-out', `Failed permanently: To ${row.destination} | ${result.error}`);
+    log.error('sms-out', `Failed permanently: To ${target} | ${result.error}`);
   }
 }
 
@@ -140,9 +151,16 @@ async function checkDelivery(row) {
     db.markOutboxSent(row.id, smsId);
     log.info('sms-out', `Delivered: To ${row.destination}`);
   } else if (delivery === 'failed') {
-    const err = result.messages?.[0]?.errorMessage || result.batch?.error || 'Delivery failed';
-    db.clearOutboxBatch(row.id);
-    handleRetry(row, err);
+    const err = result.messages?.[0]?.errorMessage || result.messages?.[0]?.errorCode || result.batch?.error || 'Delivery failed';
+    const normalized = normalizePhone(row.destination);
+    if (isInvalidNumber(err) && normalized === row.destination) {
+      db.clearOutboxBatch(row.id);
+      db.markOutboxFailed(row.id, err);
+      log.error('sms-out', `Permanent failure (no retry): To ${row.destination} | ${err}`);
+    } else {
+      db.clearOutboxBatch(row.id);
+      handleRetry(row, err);
+    }
   } else {
     db.scheduleOutbox(row.id, nowPlus(config.sms.pollIntervalMs));
   }
