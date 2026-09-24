@@ -36,6 +36,7 @@ module.exports = {
     retryMaxMs: parseInt(process.env.SMS_RETRY_MAX_MS || '1800000', 10),
     sendDelayMs: parseInt(process.env.SMS_SEND_DELAY_MS || '10000', 10),
     cooldownMs: parseInt(process.env.SMS_COOLDOWN_MS || '300000', 10),
+    maxLength: parseInt(process.env.SMS_MAX_LENGTH !== undefined ? process.env.SMS_MAX_LENGTH : '306', 10),
     workerIntervalMs: parseInt(process.env.SMS_WORKER_INTERVAL_MS || '5000', 10),
     pollIntervalMs: parseInt(process.env.SMS_POLL_INTERVAL_MS || '15000', 10),
     deliveryFirstCheckMs: parseInt(process.env.SMS_DELIVERY_FIRST_CHECK_MS || '3000', 10),

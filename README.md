@@ -63,6 +63,7 @@ docker compose up -d
 | `SMS_RETRY_MAX_MS` | Max retry delay cap (default: `1800000`, 30 min) |
 | `SMS_SEND_DELAY_MS` | Minimum gap between SMS sends (default: `10000`; set `0` to disable) |
 | `SMS_COOLDOWN_MS` | Pause all sends this long after a device/carrier send-limit error (default: `300000`, 5 min) |
+| `SMS_MAX_LENGTH` | Truncate relayed messages to this many characters (default: `306`; `0` = no limit) |
 | `SMS_WORKER_INTERVAL_MS` | Outbox worker sweep interval (default: `5000`) |
 | `SMS_POLL_INTERVAL_MS` | Delivery-status re-poll interval (default: `15000`) |
 | `SMS_DELIVERY_FIRST_CHECK_MS` | Delay before first delivery check (default: `3000`) |

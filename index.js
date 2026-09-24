@@ -57,6 +57,24 @@ function isInvalidNumber(err) {
     /cannot route/.test(s);
 }
 
+function normalizeSmsText(text) {
+  return String(text)
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014\u2015]/g, '-')
+    .replace(/\u2026/g, '...')
+    .replace(/\u00A0/g, ' ');
+}
+
+function formatSmsBody(text) {
+  let out = normalizeSmsText(text);
+  const max = config.sms.maxLength;
+  if (max > 0 && out.length > max) {
+    out = out.slice(0, Math.max(0, max - 3)).trimEnd() + '...';
+  }
+  return out;
+}
+
 function nowPlus(ms) {
   return new Date(Date.now() + ms).toISOString();
 }
@@ -419,7 +437,7 @@ async function main() {
       groupContext = senderName ? `(${chatName}) ${senderName}: ` : `(${chatName}) `;
     }
 
-    const smsBody = groupContext + buildSmsBody(body, mediaType);
+    const smsBody = formatSmsBody(groupContext + buildSmsBody(body, mediaType));
     for (const dest of destinations) {
       const target = normalizePhone(dest);
       if (smsConfigured()) {
@@ -600,7 +618,7 @@ async function main() {
 
   app.post('/api/send-test', (req, res) => {
     const to = normalizePhone(String(req.body?.to || '').trim());
-    const message = String(req.body?.message || '').trim();
+    const message = formatSmsBody(String(req.body?.message || '').trim());
     if (!to) return res.status(400).json({ error: 'number required' });
     if (!message) return res.status(400).json({ error: 'message required' });
     if (!smsConfigured()) return res.status(400).json({ error: 'no SMS provider configured' });
