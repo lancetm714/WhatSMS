@@ -61,6 +61,27 @@ function nowPlus(ms) {
   return new Date(Date.now() + ms).toISOString();
 }
 
+function isRateLimitError(err) {
+  if (!err) return false;
+  const s = String(err).toLowerCase();
+  return /send limit reached/.test(s) ||
+    /too many (sms|messages)/.test(s) ||
+    /rate limit/.test(s);
+}
+
+let sendCooldownUntil = 0;
+
+function enterCooldown(error) {
+  const until = Date.now() + config.sms.cooldownMs;
+  if (until > sendCooldownUntil) sendCooldownUntil = until;
+  log.warn('sms-out', `Send limit hit — pausing all sends for ${Math.round(config.sms.cooldownMs / 1000)}s | ${error}`);
+}
+
+function deferForCooldown(row, error) {
+  enterCooldown(error);
+  db.scheduleOutbox(row.id, nowPlus(config.sms.cooldownMs));
+}
+
 let lastSendAt = 0;
 
 async function paceSend() {
@@ -127,6 +148,8 @@ async function attemptSend(row) {
       db.markOutboxSent(row.id);
       log.info('sms-out', `Sent: To ${target}`);
     }
+  } else if (isRateLimitError(result.error)) {
+    deferForCooldown(row, result.error);
   } else if (result.retryable) {
     handleRetry(row, result.error || 'SMS send failed');
   } else {
@@ -167,7 +190,10 @@ async function checkDelivery(row) {
   } else if (delivery === 'failed') {
     const err = result.messages?.[0]?.errorMessage || result.messages?.[0]?.errorCode || result.batch?.error || 'Delivery failed';
     const normalized = normalizePhone(row.destination);
-    if (isInvalidNumber(err) && normalized === row.destination) {
+    if (isRateLimitError(err)) {
+      db.clearOutboxBatch(row.id);
+      deferForCooldown(row, err);
+    } else if (isInvalidNumber(err) && normalized === row.destination) {
       db.clearOutboxBatch(row.id);
       db.markOutboxFailed(row.id, err);
       log.error('sms-out', `Permanent failure (no retry): To ${row.destination} | ${err}`);
@@ -197,10 +223,12 @@ function startOutboxWorker() {
   let busy = false;
   const tick = async () => {
     if (busy) return;
+    if (Date.now() < sendCooldownUntil) return;
     busy = true;
     try {
       const rows = db.getPendingOutbox(new Date().toISOString(), 20);
       for (const row of rows) {
+        if (Date.now() < sendCooldownUntil) break;
         await processOutboxRow(row);
       }
       log.sendStats(db.getStats());
