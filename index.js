@@ -66,13 +66,19 @@ function normalizeSmsText(text) {
     .replace(/\u00A0/g, ' ');
 }
 
-function formatSmsBody(text) {
-  let out = normalizeSmsText(text);
-  const max = config.sms.maxLength;
-  if (max > 0 && out.length > max) {
-    out = out.slice(0, Math.max(0, max - 3)).trimEnd() + '...';
+function splitSmsBody(text, max) {
+  const out = normalizeSmsText(text);
+  if (!max || max <= 0 || out.length <= max) return [out];
+  const parts = [];
+  let rest = out;
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf(' ', max);
+    if (cut < Math.floor(max / 2)) cut = max;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
   }
-  return out;
+  if (rest.length) parts.push(rest);
+  return parts;
 }
 
 function nowPlus(ms) {
@@ -437,15 +443,19 @@ async function main() {
       groupContext = senderName ? `(${chatName}) ${senderName}: ` : `(${chatName}) `;
     }
 
-    const smsBody = formatSmsBody(groupContext + buildSmsBody(body, mediaType));
+    const smsParts = splitSmsBody(groupContext + buildSmsBody(body, mediaType), config.sms.maxLength);
     for (const dest of destinations) {
       const target = normalizePhone(dest);
       if (smsConfigured()) {
-        db.enqueue(conv.id, target, smsBody);
-        log.info('sms-out', `Queued: To ${target} | ${smsBody.slice(0, 80)}`);
+        for (const part of smsParts) {
+          db.enqueue(conv.id, target, part);
+          log.info('sms-out', `Queued (${smsParts.length} part${smsParts.length > 1 ? 's' : ''}): To ${target} | ${part.slice(0, 80)}`);
+        }
       } else {
-        log.info('sms-out', `To: ${target}`);
-        log.info('sms-out', `Body: ${smsBody}`);
+        for (const part of smsParts) {
+          log.info('sms-out', `To: ${target}`);
+          log.info('sms-out', `Body: ${part}`);
+        }
         log.info('sms-out', 'Status: SENT (offline - no SMS provider)');
       }
     }
@@ -618,14 +628,15 @@ async function main() {
 
   app.post('/api/send-test', (req, res) => {
     const to = normalizePhone(String(req.body?.to || '').trim());
-    const message = formatSmsBody(String(req.body?.message || '').trim());
+    const message = String(req.body?.message || '').trim();
     if (!to) return res.status(400).json({ error: 'number required' });
     if (!message) return res.status(400).json({ error: 'message required' });
     if (!smsConfigured()) return res.status(400).json({ error: 'no SMS provider configured' });
+    const parts = splitSmsBody(message, config.sms.maxLength);
     const conv = db.getConversation('__test__');
-    db.enqueue(conv.id, to, message);
-    log.info('system', `Test SMS queued: To ${to} | ${message.slice(0, 60)}`);
-    res.json({ success: true });
+    for (const part of parts) db.enqueue(conv.id, to, part);
+    log.info('system', `Test SMS queued: To ${to} | ${parts.length} part(s) | ${message.slice(0, 60)}`);
+    res.json({ success: true, parts: parts.length });
   });
 
   app.get('/api/logs', log.sseHandler.bind(log));
@@ -1047,7 +1058,7 @@ const GUI_HTML = `<!DOCTYPE html>
       .then(data => {
         testSendBtn.disabled = false;
         if (data.success) {
-          testResult.textContent = 'Test queued';
+          testResult.textContent = data.parts > 1 ? 'Queued ' + data.parts + ' parts' : 'Test queued';
           testMessage.value = '';
           loadOutbox();
         } else {
